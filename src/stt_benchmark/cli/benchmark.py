@@ -176,12 +176,10 @@ def run_benchmark(
                         service_name,
                         model=model,
                         progress_callback=callback,
+                        db=db,
                     )
 
                     progress.update(task, completed=len(pending))
-
-                # Save results
-                await db.insert_results_batch(results)
 
                 # Compute and display statistics
                 successful = len([r for r in results if not r.error])

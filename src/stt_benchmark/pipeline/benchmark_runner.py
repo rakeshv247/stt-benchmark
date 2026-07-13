@@ -16,6 +16,8 @@ from pipecat.workers.runner import WorkerRunner
 if TYPE_CHECKING:
     import aiohttp
 
+    from stt_benchmark.storage.database import Database
+
 from stt_benchmark.config import get_config
 from stt_benchmark.models import AudioSample, BenchmarkResult, ServiceName
 from stt_benchmark.observers.metrics_collector import MetricsCollectorObserver
@@ -258,6 +260,7 @@ class BenchmarkRunner:
         self,
         samples: list[AudioSample],
         service_name: ServiceName,
+        db: "Database",
         model: str | None = None,
         progress_callback: Callable | None = None,
     ) -> list[BenchmarkResult]:
@@ -266,6 +269,8 @@ class BenchmarkRunner:
         Args:
             samples: List of audio samples to benchmark.
             service_name: The STT service to use.
+            db: Database; each result is persisted as soon as it is produced
+                (crash-safe) in addition to being returned.
             model: Optional model name override.
             progress_callback: Optional callback(current, total, sample_id).
 
@@ -280,6 +285,8 @@ class BenchmarkRunner:
 
             result = await self.benchmark_sample(sample, service_name, model)
             results.append(result)
+
+            await db.insert_result(result)
 
             # Brief delay between samples to avoid rate limiting
             await asyncio.sleep(0.1)

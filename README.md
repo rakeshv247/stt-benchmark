@@ -180,9 +180,7 @@ This gives accuracy metrics that reflect real-world impact on downstream LLM app
 
 ## Supported Services
 
-`assemblyai`, `assemblyai_u3_rt_pro`, `aws`, `azure`, `cartesia`, `cartesia_ink2`, `deepgram`, `elevenlabs`, `elevenlabs_http`, `fal`, `gladia`, `google`, `gradium`, `groq`, `mistral`, `nvidia`, `nvidia_sagemaker`, `openai`, `openai_realtime`, `sarvam`, `sarvam_saaras_v3`, `smallest`, `soniox`, `soniox_stt_rt_v5`, `speechmatics`, `whisper`, `xai`
-
-Each key is one (vendor, model) pair — a vendor with multiple models has multiple keys (e.g. `cartesia` / `cartesia_ink2`, `assemblyai` / `assemblyai_u3_rt_pro`). To add a model, see [docs/adding-models.md](docs/adding-models.md). See `env.example` for required API keys.
+Each service key is one (vendor, model) pair — a vendor with multiple models has multiple keys (e.g. `cartesia` / `cartesia_ink2`, `assemblyai` / `assemblyai_u3_rt_pro`). The full list is defined in [`src/stt_benchmark/services.py`](src/stt_benchmark/services.py) (`STT_SERVICES`). To add a model, see [docs/adding-models.md](docs/adding-models.md). See `env.example` for required API keys.
 
 ## CLI Commands
 

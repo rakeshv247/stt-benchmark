@@ -60,9 +60,8 @@ The label's job is the generated README Model column and in-code self-descriptio
    *previous* model's entry to `is_current=False`.
 3. **`src/stt_benchmark/models.py`** — add a `ServiceName` enum value matching the
    new registry key (e.g. `ASSEMBLYAI_U3_RT_PRO = "assemblyai_u3_rt_pro"`).
-4. **`README.md`** — add the new key to the Supported Services list. You do **not**
-   hand-type the Results Summary row — step 6 writes it from your benchmark
-   database between the `RESULTS_TABLE` markers.
+4. **`README.md`** — nothing to hand-edit. Do **not** hand-type the Results Summary row
+   — step 6 writes it from your benchmark database between the `RESULTS_TABLE` markers.
 5. **Run the benchmark** for the new entry:
    ```bash
    uv run stt-benchmark run --services assemblyai_u3_rt_pro

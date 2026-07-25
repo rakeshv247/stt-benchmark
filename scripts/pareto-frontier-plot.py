@@ -17,99 +17,37 @@ LATENCY_METRICS = {
     "p99": {"key": "ttfb_p99", "label": "TTFS P99", "suffix": "_p99"},
 }
 
+# Chart chrome: quiet ink/grid tokens, one hue for all data points, and a
+# single highlight color reserved for the Pareto frontier band.
+SURFACE = "#fcfcfb"
+INK = "#0b0b0b"
+INK_2 = "#52514e"
+MUTED = "#898781"
+GRID = "#e1e0d9"
+DOT = "#2a78d6"
+BAND = "#1baf7a"
 
-def plot_pareto_frontier(
-    data: dict,
-    latency_metric: str = "median",
-    output_path: str = "stt_pareto_frontier.png",
-    show: bool = False,
-):
-    """Generate the TTFS vs WER scatter plot with Pareto frontier annotation."""
-    try:
-        import matplotlib.pyplot as plt
-        from adjustText import adjust_text
-        from matplotlib.patches import FancyBboxPatch
-    except ImportError as e:
-        if "adjustText" in str(e):
-            print("adjustText is required for plotting. Install with: uv add adjustText")
-        else:
-            print("matplotlib is required for plotting. Install with: uv add matplotlib")
-        sys.exit(1)
+# Hand-placed label positions for regions too dense for automatic layout:
+# label -> (dx, dy, horizontal alignment), offsets in points from the dot.
+# Keyed by latency metric; labels not listed fall back to automatic
+# placement (adjustText). Override per-metric via the "label_offsets"
+# config key.
+DEFAULT_LABEL_OFFSETS = {
+    "median": {
+        "NVIDIA Nemotron 3.0 ASR (en)": (8, 6, "left"),
+        "Deepgram": (8, 2, "left"),
+        "Soniox stt-rt-v4": (-9, 4, "right"),
+        "Soniox stt-rt-v5": (-9, -12, "right"),
+        "AssemblyAI universal-3-5-pro": (2, -20, "left"),
+        "Cartesia ink-2": (8, -3, "left"),
+        "AssemblyAI u3-rt-pro": (8, 2, "left"),
+        "Speechmatics": (10, -2, "left"),
+    },
+}
 
-    metric_info = LATENCY_METRICS[latency_metric]
-    ttfb_key = metric_info["key"]
-    ttfb_label = metric_info["label"]
 
-    # Create figure with extra space at bottom for Pareto annotation
-    fig = plt.figure(figsize=(10, 8.5))
-    ax = fig.add_axes([0.1, 0.24, 0.85, 0.66])  # [left, bottom, width, height]
-
-    # Plot each service
-    ttfb_values = []
-    wer_values = []
-    names = []
-    texts = []
-
-    for name, metrics in data.items():
-        ttfb = metrics[ttfb_key]
-        wer = metrics["pooled_wer"]
-        ttfb_values.append(ttfb)
-        wer_values.append(wer)
-        names.append(name)
-
-        ax.scatter(ttfb, wer, s=120, zorder=5)
-        texts.append(
-            ax.text(
-                ttfb,
-                wer,
-                name,
-                fontsize=10,
-                fontweight="bold",
-            )
-        )
-
-    # Configure axes
-    ax.set_xlabel(f"{ttfb_label} (ms) (lower is better)", fontsize=12)
-    ax.set_ylabel("Semantic WER Pooled (%) (lower is better)", fontsize=12)
-    ax.set_title(
-        f"STT Pareto Frontier: {ttfb_label} Latency vs Accuracy",
-        fontsize=14,
-        fontweight="bold",
-    )
-    ax.grid(True, alpha=0.3)
-
-    # Set axis limits with padding
-    max_ttfb = max(ttfb_values) * 1.15
-    max_wer = max(wer_values) * 1.15
-    ax.set_xlim(0, max_ttfb)
-    ax.set_ylim(0, max_wer)
-
-    # Adjust text positions to avoid overlaps
-    adjust_text(
-        texts,
-        x=ttfb_values,
-        y=wer_values,
-        arrowprops={"arrowstyle": "-", "color": "gray", "alpha": 0.5},
-        expand=(1.2, 1.4),
-        force_text=(0.5, 1.0),
-    )
-
-    # Add reference lines for best values
-    best_ttfb = min(ttfb_values)
-    best_wer = min(wer_values)
-    ax.axhline(y=best_wer, color="green", linestyle="--", alpha=0.4, linewidth=1)
-    ax.axvline(x=best_ttfb, color="blue", linestyle="--", alpha=0.4, linewidth=1)
-
-    # Add "ideal" corner indicator
-    ax.annotate(
-        "← ideal",
-        (best_ttfb * 0.5, best_wer * 0.5),
-        fontsize=10,
-        color="gray",
-        style="italic",
-    )
-
-    # Find Pareto-optimal services (not dominated by any other)
+def find_pareto_optimal(names: list, ttfb_values: list, wer_values: list) -> list:
+    """Return (name, ttfb, wer) tuples not dominated by any other service, fastest first."""
     pareto_optimal = []
     for i, (name, ttfb, wer) in enumerate(zip(names, ttfb_values, wer_values, strict=False)):
         is_dominated = False
@@ -121,110 +59,160 @@ def plot_pareto_frontier(
         if not is_dominated:
             pareto_optimal.append((name, ttfb, wer))
 
-    # Sort Pareto optimal by TTFS (fastest first)
     pareto_optimal.sort(key=lambda x: x[1])
+    return pareto_optimal
 
-    # Draw Pareto frontier line connecting optimal points
+
+def plot_pareto_frontier(
+    data: dict,
+    latency_metric: str = "median",
+    output_path: str = "stt_pareto_frontier.png",
+    show: bool = False,
+    label_offsets: dict | None = None,
+):
+    """Generate the TTFS vs WER scatter plot with the Pareto frontier highlighted."""
+    try:
+        import matplotlib.pyplot as plt
+        from adjustText import adjust_text
+        from matplotlib.lines import Line2D
+    except ImportError as e:
+        if "adjustText" in str(e):
+            print("adjustText is required for plotting. Install with: uv add adjustText")
+        else:
+            print("matplotlib is required for plotting. Install with: uv add matplotlib")
+        sys.exit(1)
+
+    metric_info = LATENCY_METRICS[latency_metric]
+    ttfb_key = metric_info["key"]
+    ttfb_label = metric_info["label"]
+    if label_offsets is None:
+        label_offsets = DEFAULT_LABEL_OFFSETS.get(latency_metric, {})
+
+    names = list(data)
+    ttfb_values = [data[n][ttfb_key] for n in names]
+    wer_values = [data[n]["pooled_wer"] for n in names]
+    pareto_optimal = find_pareto_optimal(names, ttfb_values, wer_values)
+
+    fig, ax = plt.subplots(figsize=(12.5, 8), dpi=150)
+    fig.patch.set_facecolor(SURFACE)
+    ax.set_facecolor(SURFACE)
+
+    # Pareto frontier: a soft highlight band through the optimal points,
+    # plus a halo ring on each one.
+    frontier_ttfb = [p[1] for p in pareto_optimal]
+    frontier_wer = [p[2] for p in pareto_optimal]
     if len(pareto_optimal) > 1:
-        frontier_ttfb = [p[1] for p in pareto_optimal]
-        frontier_wer = [p[2] for p in pareto_optimal]
         ax.plot(
             frontier_ttfb,
             frontier_wer,
-            color="#c44e52",
-            linestyle="--",
-            linewidth=2,
-            alpha=0.7,
-            zorder=4,
-            marker="o",
-            markersize=8,
-            markerfacecolor="#c44e52",
-            markeredgecolor="white",
-            markeredgewidth=1.5,
+            color=BAND,
+            alpha=0.22,
+            linewidth=30,
+            solid_capstyle="round",
+            solid_joinstyle="round",
+            zorder=1,
+        )
+    ax.scatter(
+        frontier_ttfb,
+        frontier_wer,
+        s=200,
+        facecolors="none",
+        edgecolors=BAND,
+        linewidths=1.8,
+        alpha=0.85,
+        zorder=4,
+    )
+
+    # All services: one hue, ring in the surface color for separation.
+    ax.scatter(
+        ttfb_values, wer_values, s=55, color=DOT, edgecolors=SURFACE, linewidths=1.2, zorder=5
+    )
+
+    # Labels: hand-placed offsets where the layout is too dense for the
+    # automatic solver, adjustText everywhere else.
+    leader_line = {"arrowstyle": "-", "color": MUTED, "alpha": 0.6, "lw": 0.8}
+    texts = []
+    for name, ttfb, wer in zip(names, ttfb_values, wer_values, strict=False):
+        if name in label_offsets:
+            dx, dy, ha = label_offsets[name]
+            ax.annotate(
+                name,
+                (ttfb, wer),
+                xytext=(dx, dy),
+                textcoords="offset points",
+                ha=ha,
+                va="center",
+                fontsize=7.5,
+                color=INK_2,
+                zorder=6,
+                arrowprops={**leader_line, "shrinkA": 1, "shrinkB": 5},
+            )
+        else:
+            texts.append(ax.text(ttfb, wer, name, fontsize=7.5, color=INK_2, zorder=6))
+
+    # Axis limits: pad around the data instead of forcing a zero origin,
+    # so dense regions keep their resolution.
+    x_range = max(ttfb_values) - min(ttfb_values) or max(ttfb_values) * 0.2 or 1
+    y_range = max(wer_values) - min(wer_values) or max(wer_values) * 0.2 or 1
+    ax.set_xlim(min(ttfb_values) - 0.08 * x_range, max(ttfb_values) + 0.10 * x_range)
+    ax.set_ylim(min(wer_values) - 0.08 * y_range, max(wer_values) + 0.12 * y_range)
+
+    # Recessive chrome: hairline grid, no top/right spines, muted ticks.
+    ax.grid(True, color=GRID, linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(MUTED)
+    ax.tick_params(colors=INK_2, labelsize=10)
+
+    ax.set_xlabel(f"{ttfb_label} (ms) (lower is better)", fontsize=11, color=INK)
+    ax.set_ylabel("Semantic WER Pooled (%) (lower is better)", fontsize=11, color=INK)
+    ax.set_title(
+        f"STT Pareto Frontier: {ttfb_label} Latency vs Accuracy",
+        fontsize=13,
+        fontweight="bold",
+        color=INK,
+        pad=14,
+    )
+
+    if texts:
+        adjust_text(
+            texts,
+            x=ttfb_values,
+            y=wer_values,
+            ax=ax,
+            arrowprops=leader_line,
+            expand=(1.5, 1.9),
+            force_text=(0.6, 1.2),
         )
 
-    # Add bottom panel for Pareto frontier services
+    ax.legend(
+        handles=[
+            Line2D(
+                [],
+                [],
+                color=BAND,
+                alpha=0.35,
+                linewidth=12,
+                solid_capstyle="round",
+                label="Pareto frontier",
+            )
+        ],
+        loc="upper right",
+        frameon=True,
+        framealpha=0.95,
+        edgecolor=GRID,
+        fontsize=11,
+    )
+
+    plt.savefig(output_path, bbox_inches="tight", facecolor=SURFACE)
+    print(f"Plot saved to: {output_path}")
     if pareto_optimal:
-        # Build the per-service stat strings (README labels are display-ready).
-        service_strs = [
+        frontier_strs = [
             f"{name}: {ttfb:.0f}ms, WER {wer:.2f}%" for name, ttfb, wer in pareto_optimal
         ]
-
-        # Wrap the service list across multiple lines so it stays inside the box.
-        sep = "    "
-        max_chars = 128  # approx chars that fit on one line at fontsize 10 in the box width
-        wrapped_lines: list[str] = []
-        current: list[str] = []
-        current_len = 0
-        for s in service_strs:
-            add_len = len(s) + (len(sep) if current else 0)
-            if current and current_len + add_len > max_chars:
-                wrapped_lines.append(sep.join(current))
-                current = [s]
-                current_len = len(s)
-            else:
-                current.append(s)
-                current_len += add_len
-        if current:
-            wrapped_lines.append(sep.join(current))
-
-        # Lay the box out from a fixed top, growing downward with the line count.
-        box_top = 0.155
-        header_y = 0.135
-        desc_y = 0.113
-        services_top_y = 0.090
-        line_h = 0.024
-        box_bottom = services_top_y - (len(wrapped_lines) - 1) * line_h - 0.022
-
-        # Draw background box (positioned below the chart with gap)
-        box = FancyBboxPatch(
-            (0.02, box_bottom),
-            0.96,
-            box_top - box_bottom,
-            boxstyle="round,pad=0.005,rounding_size=0.01",
-            facecolor="#f0f7f0",
-            edgecolor="#4a7c4a",
-            linewidth=1.5,
-            transform=fig.transFigure,
-            clip_on=False,
-        )
-        fig.patches.append(box)
-
-        # Header
-        fig.text(
-            0.04,
-            header_y,
-            f"Pareto Frontier Services ({ttfb_label})",
-            fontsize=11,
-            fontweight="bold",
-            color="#2d5a2d",
-        )
-
-        # Description
-        fig.text(
-            0.04,
-            desc_y,
-            "These services offer the best trade-off between latency and accuracy "
-            "(no other service is better on both metrics):",
-            fontsize=9,
-            color="#555555",
-        )
-
-        # List Pareto optimal services with stats, wrapped across lines.
-        for i, line in enumerate(wrapped_lines):
-            fig.text(
-                0.04,
-                services_top_y - i * line_h,
-                line,
-                fontsize=10,
-                fontweight="medium",
-                color="#333333",
-                va="top",
-            )
-
-    # Save
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    print(f"Plot saved to: {output_path}")
+        print(f"Pareto frontier: {' | '.join(frontier_strs)}")
 
     if show:
         plt.show()
@@ -243,6 +231,10 @@ def load_config_file(config_path: str) -> dict:
         latency: latency metric - "median", "p95", "p99", or "all"
         output: output file path or directory
         show: whether to display the plot interactively (true/false)
+        label_offsets: optional per-metric hand-placed label positions,
+            e.g. {"median": {"Deepgram": [8, 2, "left"]}} with offsets in
+            points from the dot. Overrides the script's built-in defaults
+            for that metric; labels not listed use automatic placement.
     """
     path = Path(config_path)
     if not path.exists():
@@ -383,6 +375,7 @@ def main():
     latency = args.latency or file_config.get("latency", ["median", "p95"])
     services = args.services or file_config.get("services", None)
     display_names = file_config.get("display_names", {})
+    label_offsets_cfg = file_config.get("label_offsets", {})
     show = args.show if args.show is not None else file_config.get("show", False)
 
     # The README results table is the single source of truth for the published
@@ -443,7 +436,9 @@ def main():
             suffix = LATENCY_METRICS[metric]["suffix"]
             plot_output = output_path / f"{default_basename}{suffix}.png"
             print(f"\nGenerating {LATENCY_METRICS[metric]['label']} plot...")
-            plot_pareto_frontier(data, metric, str(plot_output), show)
+            plot_pareto_frontier(
+                data, metric, str(plot_output), show, label_offsets_cfg.get(metric)
+            )
     else:
         for metric in metrics_to_plot:
             suffix = LATENCY_METRICS[metric]["suffix"]
@@ -452,7 +447,9 @@ def main():
             else:
                 plot_output = output_path
             print(f"\nGenerating {LATENCY_METRICS[metric]['label']} plot...")
-            plot_pareto_frontier(data, metric, str(plot_output), show)
+            plot_pareto_frontier(
+                data, metric, str(plot_output), show, label_offsets_cfg.get(metric)
+            )
 
 
 if __name__ == "__main__":

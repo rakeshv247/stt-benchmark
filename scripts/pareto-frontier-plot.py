@@ -27,6 +27,13 @@ GRID = "#e1e0d9"
 DOT = "#2a78d6"
 BAND = "#1baf7a"
 
+# Latency range chart: one blue hue stepping lighter as the percentile
+# deepens, with the connector drawn as a gradient between the same
+# endpoints (pre-blended toward the surface so it sits under the dots).
+RANGE_MEDIAN = "#1c5cab"
+RANGE_P95 = "#3987e5"
+RANGE_P99 = "#86b6ef"
+
 # Hand-placed label positions for regions too dense for automatic layout:
 # label -> (dx, dy, horizontal alignment), offsets in points from the dot.
 # Keyed by latency metric; labels not listed fall back to automatic
@@ -220,6 +227,123 @@ def plot_pareto_frontier(
     plt.close(fig)
 
 
+def _mix(hex_color: str, other: str, t: float) -> tuple:
+    """Blend hex_color toward other by t (0..1), returning an RGB tuple."""
+    a = [int(hex_color[i : i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i : i + 2], 16) for i in (1, 3, 5)]
+    return tuple((av + (bv - av) * t) / 255 for av, bv in zip(a, b, strict=True))
+
+
+def plot_latency_range(
+    data: dict,
+    output_path: str = "stt_latency_range.png",
+    show: bool = False,
+):
+    """Generate the per-service latency distribution chart (median / P95 / P99).
+
+    One row per service sorted by median (fastest on top), with a gradient
+    connector from median out to P99 — the length of each row is the size
+    of the service's latency tail.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.collections import LineCollection
+        from matplotlib.colors import LinearSegmentedColormap
+    except ImportError:
+        print("matplotlib is required for plotting. Install with: uv add matplotlib")
+        sys.exit(1)
+
+    gradient = LinearSegmentedColormap.from_list(
+        "latency", [_mix(RANGE_MEDIAN, SURFACE, 0.55), _mix(RANGE_P99, SURFACE, 0.55)]
+    )
+    services = sorted(data, key=lambda n: data[n]["ttfb_median"])
+
+    fig, ax = plt.subplots(figsize=(12.5, 8), dpi=150)
+    fig.patch.set_facecolor(SURFACE)
+    ax.set_facecolor(SURFACE)
+
+    ys = range(len(services), 0, -1)  # fastest at the top
+    max_p99 = 0.0
+    for y, name in zip(ys, services, strict=True):
+        med = data[name]["ttfb_median"]
+        p95 = data[name]["ttfb_p95"]
+        p99 = data[name]["ttfb_p99"]
+        max_p99 = max(max_p99, p99)
+        if p99 > med:
+            gx = np.linspace(med, p99, 60)
+            segs = [((gx[i], y), (gx[i + 1], y)) for i in range(len(gx) - 1)]
+            ax.add_collection(
+                LineCollection(
+                    segs,
+                    colors=gradient(np.linspace(0, 1, len(segs))),
+                    linewidths=3,
+                    capstyle="butt",
+                    zorder=2,
+                )
+            )
+        ax.scatter([p99], [y], s=55, color=RANGE_P99, edgecolors=SURFACE, linewidths=1.4, zorder=4)
+        ax.scatter([p95], [y], s=55, color=RANGE_P95, edgecolors=SURFACE, linewidths=1.4, zorder=5)
+        ax.scatter(
+            [med], [y], s=70, color=RANGE_MEDIAN, edgecolors=SURFACE, linewidths=1.4, zorder=6
+        )
+
+    ax.set_yticks(list(ys))
+    ax.set_yticklabels(services, fontsize=9, color=INK_2)
+    ax.set_ylim(0.3, len(services) + 0.7)
+
+    # Zero origin on purpose: rows never collide, and it keeps the row
+    # lengths (tail sizes) honestly comparable.
+    ax.set_xlim(0, max_p99 * 1.05)
+    ax.grid(True, axis="x", color=GRID, linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(MUTED)
+    ax.tick_params(colors=INK_2, labelsize=10)
+    ax.tick_params(axis="y", length=0)
+
+    ax.set_xlabel("TTFS (ms) (lower is better)", fontsize=11, color=INK)
+    ax.set_title(
+        "STT Latency Distribution: Median / P95 / P99 by Service",
+        fontsize=13,
+        fontweight="bold",
+        color=INK,
+        pad=14,
+    )
+
+    handles = [
+        plt.Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="",
+            markersize=8,
+            markerfacecolor=c,
+            markeredgecolor=SURFACE,
+            label=lab,
+        )
+        for c, lab in [(RANGE_MEDIAN, "Median"), (RANGE_P95, "P95"), (RANGE_P99, "P99")]
+    ]
+    ax.legend(
+        handles=handles,
+        loc="upper right",
+        frameon=True,
+        framealpha=0.95,
+        edgecolor=GRID,
+        fontsize=10,
+    )
+
+    plt.savefig(output_path, bbox_inches="tight", facecolor=SURFACE)
+    print(f"Plot saved to: {output_path}")
+
+    if show:
+        plt.show()
+
+    plt.close(fig)
+
+
 def load_config_file(config_path: str) -> dict:
     """Load plot configuration from a JSON file.
 
@@ -228,7 +352,8 @@ def load_config_file(config_path: str) -> dict:
         display_names: optional dict of per-service label overrides. Labels are
             derived from the registry (vendor / model_label) by default; only add
             entries here to override a derived label.
-        latency: latency metric - "median", "p95", "p99", or "all"
+        charts: chart types to generate - ["pareto", "range"] (default both)
+        latency: latency metric for the Pareto charts - "median", "p95", "p99"
         output: output file path or directory
         show: whether to display the plot interactively (true/false)
         label_offsets: optional per-metric hand-placed label positions,
@@ -319,7 +444,16 @@ def get_data_from_readme(readme_path: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate Pareto frontier plot of TTFS vs Semantic WER for STT services"
+        description="Generate latency/accuracy charts for STT services: "
+        "Pareto frontier plots of TTFS vs Semantic WER, and a per-service "
+        "latency distribution (median/P95/P99) chart"
+    )
+    parser.add_argument(
+        "--charts",
+        nargs="+",
+        choices=["pareto", "range"],
+        default=None,
+        help="Chart types to generate (default: pareto range)",
     )
     parser.add_argument(
         "-o",
@@ -333,7 +467,7 @@ def main():
         nargs="+",
         choices=["median", "p95", "p99"],
         default=None,
-        help="Latency metrics to plot (e.g. -l median p95). Default: median p95",
+        help="Latency metrics for the Pareto charts (e.g. -l median p95). Default: median",
     )
     parser.add_argument(
         "-s",
@@ -372,7 +506,8 @@ def main():
 
     # Resolve settings: CLI args > config file > defaults
     output = args.output or file_config.get("output", "assets/")
-    latency = args.latency or file_config.get("latency", ["median", "p95"])
+    charts = args.charts or file_config.get("charts", ["pareto", "range"])
+    latency = args.latency or file_config.get("latency", ["median"])
     services = args.services or file_config.get("services", None)
     display_names = file_config.get("display_names", {})
     label_offsets_cfg = file_config.get("label_offsets", {})
@@ -428,28 +563,43 @@ def main():
     # Generate plots
     output_path = Path(output)
     default_basename = "stt_pareto_frontier"
+    is_dir_output = output_path.is_dir() or output.endswith("/")
 
-    # If output is a directory, generate filenames inside it
-    if output_path.is_dir() or output.endswith("/"):
-        output_path.mkdir(parents=True, exist_ok=True)
-        for metric in metrics_to_plot:
-            suffix = LATENCY_METRICS[metric]["suffix"]
-            plot_output = output_path / f"{default_basename}{suffix}.png"
-            print(f"\nGenerating {LATENCY_METRICS[metric]['label']} plot...")
-            plot_pareto_frontier(
-                data, metric, str(plot_output), show, label_offsets_cfg.get(metric)
-            )
-    else:
-        for metric in metrics_to_plot:
-            suffix = LATENCY_METRICS[metric]["suffix"]
-            if len(metrics_to_plot) > 1:
-                plot_output = output_path.parent / f"{output_path.stem}{suffix}{output_path.suffix}"
-            else:
-                plot_output = output_path
-            print(f"\nGenerating {LATENCY_METRICS[metric]['label']} plot...")
-            plot_pareto_frontier(
-                data, metric, str(plot_output), show, label_offsets_cfg.get(metric)
-            )
+    if "pareto" in charts:
+        # If output is a directory, generate filenames inside it
+        if is_dir_output:
+            output_path.mkdir(parents=True, exist_ok=True)
+            for metric in metrics_to_plot:
+                suffix = LATENCY_METRICS[metric]["suffix"]
+                plot_output = output_path / f"{default_basename}{suffix}.png"
+                print(f"\nGenerating {LATENCY_METRICS[metric]['label']} plot...")
+                plot_pareto_frontier(
+                    data, metric, str(plot_output), show, label_offsets_cfg.get(metric)
+                )
+        else:
+            for metric in metrics_to_plot:
+                suffix = LATENCY_METRICS[metric]["suffix"]
+                if len(metrics_to_plot) > 1:
+                    plot_output = (
+                        output_path.parent / f"{output_path.stem}{suffix}{output_path.suffix}"
+                    )
+                else:
+                    plot_output = output_path
+                print(f"\nGenerating {LATENCY_METRICS[metric]['label']} plot...")
+                plot_pareto_frontier(
+                    data, metric, str(plot_output), show, label_offsets_cfg.get(metric)
+                )
+
+    if "range" in charts:
+        # The range chart has a fixed basename; with a file-path output it
+        # lands next to that file, otherwise inside the output directory.
+        if is_dir_output:
+            output_path.mkdir(parents=True, exist_ok=True)
+            range_output = output_path / "stt_latency_range.png"
+        else:
+            range_output = output_path.parent / "stt_latency_range.png"
+        print("\nGenerating latency distribution plot...")
+        plot_latency_range(data, str(range_output), show)
 
 
 if __name__ == "__main__":

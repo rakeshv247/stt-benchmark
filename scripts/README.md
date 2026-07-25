@@ -2,7 +2,7 @@
 
 ## Pareto Frontier Plot
 
-`pareto-frontier-plot.py` generates scatter plots of TTFS latency vs Semantic WER with a Pareto frontier overlay.
+`pareto-frontier-plot.py` generates the README's latency/accuracy charts: scatter plots of TTFS latency vs Semantic WER with a Pareto frontier overlay, and a per-service latency distribution (median/P95/P99) chart.
 
 ### Usage
 
@@ -25,7 +25,8 @@ python scripts/pareto-frontier-plot.py -c scripts/plot-config.json --latency p95
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-o`, `--output` | Output file path or directory | `assets/` |
-| `-l`, `--latency` | Latency metrics to plot (space-separated): `median`, `p95`, `p99` | `median p95` |
+| `--charts` | Chart types to generate (space-separated): `pareto`, `range` | `pareto range` |
+| `-l`, `--latency` | Latency metrics for the Pareto charts (space-separated): `median`, `p95`, `p99` | `median` |
 | `-s`, `--services` | Services to include (space-separated) | all available |
 | `-c`, `--config` | Path to a JSON config file | none |
 | `--show` | Display the plot interactively | off |
@@ -54,7 +55,8 @@ A JSON file that stores plot settings for repeatable generation. See `plot-confi
 |-----|------|-------------|
 | `services` | list of strings | Which services to include in the plot |
 | `display_names` | dict | Maps service keys to display labels on the plot |
-| `latency` | string or list | Latency metrics to plot: `"p95"` or `["median", "p95"]` |
+| `charts` | list of strings | Chart types to generate: `["pareto", "range"]` |
+| `latency` | string or list | Latency metrics for the Pareto charts: `"p95"` or `["median", "p95"]` |
 | `output` | string | Output file path or directory |
 | `show` | boolean | Display the plot interactively |
 | `label_offsets` | dict | Per-metric hand-placed label positions for dense regions, e.g. `{"median": {"Deepgram": [8, 2, "left"]}}` — `[dx, dy, alignment]` with offsets in points from the dot. Overrides the script's built-in defaults for that metric; labels not listed are placed automatically. |

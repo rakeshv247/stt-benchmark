@@ -36,13 +36,15 @@ Benchmark results on 1000 samples from the `pipecat-ai/smart-turn-data-v3.1-trai
 
 ![STT Service Pareto Frontier - Median](assets/stt_pareto_frontier.png)
 
-**Worst-Case Latency (P95)**
-
-![STT Service Pareto Frontier - P95](assets/stt_pareto_frontier_p95.png)
-
 The Pareto frontier shows services that offer the best trade-off between latency and accuracy—no other service is better on both metrics. Services on the frontier represent efficient choices depending on your priorities.
 
-For production voice agents, **P95 latency matters more than median**. Even occasional high latency (5% of interactions) can break the conversational flow. A service with great median but poor P95 indicates inconsistent performance.
+### Latency Consistency
+
+**Median / P95 / P99 by Service**
+
+![STT Service Latency Distribution](assets/stt_latency_range.png)
+
+For production voice agents, **tail latency matters more than median**. Even occasional high latency (5% of interactions) can break the conversational flow. A service with a great median but a long tail indicates inconsistent performance—the length of each row above is the size of that service's latency tail.
 
 ### Metrics Glossary
 

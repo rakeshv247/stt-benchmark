@@ -34,6 +34,8 @@ class ServiceName(str, Enum):
     NVIDIA = "nvidia"
     NVIDIA_SAGEMAKER = "nvidia_sagemaker"
     OPENAI = "openai"
+    OPENAI_GPT_LIVE_TRANSCRIBE = "openai_gpt_live_transcribe"
+    OPENAI_GPT_REALTIME_WHISPER = "openai_gpt_realtime_whisper"
     OPENAI_REALTIME = "openai_realtime"
     SARVAM = "sarvam"
     SARVAM_SAARAS_V3 = "sarvam_saaras_v3"

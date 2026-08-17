@@ -374,6 +374,30 @@ def create_openai_realtime() -> FrameProcessor:
     )
 
 
+def create_openai_gpt_live_transcribe() -> FrameProcessor:
+    from pipecat.services.openai.stt import OpenAIRealtimeSTTService
+
+    return OpenAIRealtimeSTTService(
+        api_key=_get_env("OPENAI_API_KEY"),
+        settings=OpenAIRealtimeSTTService.Settings(
+            model="gpt-live-transcribe",
+            language=Language.EN,
+        ),
+    )
+
+
+def create_openai_gpt_realtime_whisper() -> FrameProcessor:
+    from pipecat.services.openai.stt import OpenAIRealtimeSTTService
+
+    return OpenAIRealtimeSTTService(
+        api_key=_get_env("OPENAI_API_KEY"),
+        settings=OpenAIRealtimeSTTService.Settings(
+            model="gpt-realtime-whisper",
+            language=Language.EN,
+        ),
+    )
+
+
 def create_sarvam() -> FrameProcessor:
     from pipecat.services.sarvam.stt import SarvamSTTService
 
@@ -596,6 +620,18 @@ STT_SERVICES: dict[str, ServiceDefinition] = {
         factory=create_openai,
         vendor="OpenAI",
         model_label="gpt-4o-mini-transcribe",
+        required_env_vars=["OPENAI_API_KEY"],
+    ),
+    "openai_gpt_live_transcribe": ServiceDefinition(
+        factory=create_openai_gpt_live_transcribe,
+        vendor="OpenAI",
+        model_label="gpt-live-transcribe",
+        required_env_vars=["OPENAI_API_KEY"],
+    ),
+    "openai_gpt_realtime_whisper": ServiceDefinition(
+        factory=create_openai_gpt_realtime_whisper,
+        vendor="OpenAI",
+        model_label="gpt-realtime-whisper",
         required_env_vars=["OPENAI_API_KEY"],
     ),
     "openai_realtime": ServiceDefinition(

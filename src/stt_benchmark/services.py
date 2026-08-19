@@ -474,6 +474,24 @@ def create_speechmatics() -> FrameProcessor:
     )
 
 
+# melia-1: new Speechmatics RT model, selected via the operating point. Runs
+# alongside the default `speechmatics` entry (enhanced) rather than superseding it.
+# Requires the melia-1-aware Speechmatics SDK — see the [tool.uv] overrides in
+# pyproject.toml.
+def create_speechmatics_melia_1() -> FrameProcessor:
+    from pipecat.services.speechmatics.stt import SpeechmaticsSTTService, TurnDetectionMode
+
+    return SpeechmaticsSTTService(
+        api_key=_get_env("SPEECHMATICS_API_KEY"),
+        base_url=os.getenv("SPEECHMATICS_RT_URL", "wss://us.rt.speechmatics.com/v2"),
+        settings=SpeechmaticsSTTService.Settings(
+            language=Language.EN,
+            turn_detection_mode=TurnDetectionMode.EXTERNAL,
+            operating_point=SpeechmaticsSTTService.OperatingPoint.MELIA_1,
+        ),
+    )
+
+
 def create_whisper() -> FrameProcessor:
     from pipecat.services.whisper.stt import Model, WhisperSTTService
 
@@ -675,7 +693,16 @@ STT_SERVICES: dict[str, ServiceDefinition] = {
     "speechmatics": ServiceDefinition(
         factory=create_speechmatics,
         vendor="Speechmatics",
-        model_label="N/A",
+        # Was "N/A" while Speechmatics served one engine; now that the operating
+        # point selects a model, name the one this entry actually runs (the SDK
+        # default) so it reads apart from the melia-1 entry in plots/README.
+        model_label="enhanced",
+        required_env_vars=["SPEECHMATICS_API_KEY"],
+    ),
+    "speechmatics_melia_1": ServiceDefinition(
+        factory=create_speechmatics_melia_1,
+        vendor="Speechmatics",
+        model_label="melia-1",
         required_env_vars=["SPEECHMATICS_API_KEY"],
     ),
     "whisper": ServiceDefinition(

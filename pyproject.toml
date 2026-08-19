@@ -61,6 +61,20 @@ viz = [
 [project.scripts]
 stt-benchmark = "stt_benchmark.cli.main:app"
 
+# The released speechmatics-voice/-rt wheels only know the "standard" and
+# "enhanced" operating points, so `melia-1` fails client-side validation before a
+# request is ever sent. Until melia-1 ships to PyPI, pull both SDK packages from
+# the support-melia-1-rt branch. These are `override-dependencies` rather than
+# `[tool.uv.sources]` because the branch reports version 0.0.0, which would
+# violate pipecat's `speechmatics-voice[smart]~=0.2.8` pin — overrides discard
+# that constraint, plain sources do not. Delete this block once melia-1 is
+# released and bump the pipecat pin instead.
+[tool.uv]
+override-dependencies = [
+    "speechmatics-rt @ git+https://github.com/speechmatics/speechmatics-python-sdk.git@support-melia-1-rt#subdirectory=sdk/rt",
+    "speechmatics-voice[smart] @ git+https://github.com/speechmatics/speechmatics-python-sdk.git@support-melia-1-rt#subdirectory=sdk/voice",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

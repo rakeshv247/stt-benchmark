@@ -263,8 +263,19 @@ class BenchmarkRunner:
         db: "Database",
         model: str | None = None,
         progress_callback: Callable | None = None,
+        concurrency: int = 1,
     ) -> list[BenchmarkResult]:
-        """Benchmark multiple audio samples sequentially.
+        """Benchmark multiple audio samples, up to ``concurrency`` at a time.
+
+        Each in-flight sample builds its own pipeline, STT service and observers,
+        so it opens its own connection to the provider. ``concurrency`` caps how
+        many of those are open at once; ``concurrency=1`` reproduces the original
+        strictly-sequential behaviour.
+
+        Note: TTFB is a latency measurement, and running samples concurrently
+        adds local CPU contention (Silero VAD is CPU-bound) that can inflate the
+        reported numbers. Keep ``concurrency`` at 1 for results meant to be
+        compared against published figures.
 
         Args:
             samples: List of audio samples to benchmark.
@@ -272,26 +283,53 @@ class BenchmarkRunner:
             db: Database; each result is persisted as soon as it is produced
                 (crash-safe) in addition to being returned.
             model: Optional model name override.
-            progress_callback: Optional callback(current, total, sample_id).
+            progress_callback: Optional callback(completed, total, sample_id).
+            concurrency: Max number of samples processed simultaneously.
 
         Returns:
-            List of BenchmarkResult objects.
+            List of BenchmarkResult objects, in the same order as ``samples``.
         """
-        results = []
-
-        for i, sample in enumerate(samples):
-            if progress_callback:
-                progress_callback(i, len(samples), sample.sample_id)
-
-            result = await self.benchmark_sample(sample, service_name, model)
-            results.append(result)
-
-            await db.insert_result(result)
-
-            # Brief delay between samples to avoid rate limiting
-            await asyncio.sleep(0.1)
+        concurrency = max(1, concurrency)
+        total = len(samples)
+        # Indexed up front so completion order never reorders the output.
+        results: list[BenchmarkResult | None] = [None] * total
+        semaphore = asyncio.Semaphore(concurrency)
+        completed = 0
 
         if progress_callback:
-            progress_callback(len(samples), len(samples), "complete")
+            progress_callback(0, total, None)
 
-        return results
+        async def run_one(index: int, sample: AudioSample) -> None:
+            nonlocal completed
+            async with semaphore:
+                # benchmark_sample catches Exception internally and reports
+                # failure via BenchmarkResult.error, so it does not raise here.
+                result = await self.benchmark_sample(sample, service_name, model)
+                results[index] = result
+
+                # Persist as soon as it is produced (crash-safe). One sample
+                # failing to persist must not take down its siblings.
+                try:
+                    await db.insert_result(result)
+                except Exception as e:
+                    logger.error(
+                        f"[{service_name.value}] Failed to persist result for "
+                        f"{sample.sample_id}: {e}"
+                    )
+
+                # asyncio is single-threaded, so this needs no lock.
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total, sample.sample_id)
+
+                # Brief delay before this slot picks up the next sample, to
+                # avoid rate limiting. At concurrency=1 this reproduces the
+                # original inter-sample delay exactly.
+                await asyncio.sleep(0.1)
+
+        await asyncio.gather(*(run_one(i, s) for i, s in enumerate(samples)))
+
+        if progress_callback:
+            progress_callback(total, total, "complete")
+
+        return [r for r in results if r is not None]

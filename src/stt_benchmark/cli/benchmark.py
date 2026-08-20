@@ -58,6 +58,18 @@ def run_benchmark(
         "-v",
         help="VAD silence duration to trigger stop (seconds)",
     ),
+    concurrency: int = typer.Option(
+        1,
+        "--concurrency",
+        "-c",
+        min=1,
+        help=(
+            "Number of samples to benchmark simultaneously per service. Each one "
+            "opens its own connection to the provider (e.g. concurrent Speechmatics "
+            "sessions). Higher values finish faster but add local CPU contention "
+            "that can inflate the reported latency."
+        ),
+    ),
     test: bool = typer.Option(
         False,
         "--test",
@@ -89,6 +101,7 @@ def run_benchmark(
         console.print(f"Sample limit: {limit}")
     console.print(f"Skip existing: {skip_existing}")
     console.print(f"VAD stop secs: {vad_stop_secs}")
+    console.print(f"Concurrency: {concurrency}")
     if test:
         console.print("[yellow]Test mode: using separate test database[/yellow]")
 
@@ -177,6 +190,7 @@ def run_benchmark(
                         model=model,
                         progress_callback=callback,
                         db=db,
+                        concurrency=concurrency,
                     )
 
                     progress.update(task, completed=len(pending))

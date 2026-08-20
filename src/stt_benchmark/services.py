@@ -493,17 +493,25 @@ def create_speechmatics_melia_1() -> FrameProcessor:
             # otherwise. We don't score speaker labels, and the melia-1
             # transcriber doesn't serve diarization yet, so ask for it off.
             enable_diarization=False,
-            # Drop the delay knobs so the engine applies its own: the EXTERNAL
-            # preset pins max_delay=2.0 and VoiceAgentConfig defaults
-            # max_delay_mode to FLEXIBLE. Neither can be cleared via Settings —
-            # pipecat forwards advanced params only when they aren't None, so
-            # `max_delay=None` is a no-op, and max_delay_mode is read as
-            # `.value` so nulling it directly raises AttributeError. Setting
-            # them on advanced_engine_control instead patches the outgoing
-            # TranscriptionConfig, where both are Optional, and None fields are
-            # dropped from StartRecognition.
+            # Trim everything the melia-1 transcriber doesn't serve yet so it
+            # applies its own defaults. The SDK sends all four unconditionally:
+            # the EXTERNAL preset pins max_delay=2.0, VoiceAgentConfig defaults
+            # max_delay_mode to FLEXIBLE and enable_entities to False (a False
+            # still serializes, since only None is dropped), and
+            # audio_filtering_config is hardcoded in the client. None can be
+            # cleared through Settings — pipecat forwards advanced params only
+            # when they aren't None, max_delay_mode is read as `.value` so
+            # nulling it raises AttributeError, and the other two have no
+            # Settings field at all. advanced_engine_control patches the
+            # outgoing TranscriptionConfig instead, where each one is Optional
+            # and None fields are dropped from StartRecognition.
             extra_params={
-                "advanced_engine_control": {"max_delay": None, "max_delay_mode": None},
+                "advanced_engine_control": {
+                    "max_delay": None,
+                    "max_delay_mode": None,
+                    "enable_entities": None,
+                    "audio_filtering_config": None,
+                },
             },
         ),
     )

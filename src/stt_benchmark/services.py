@@ -488,6 +488,18 @@ def create_speechmatics_melia_1() -> FrameProcessor:
             language=Language.EN,
             turn_detection_mode=TurnDetectionMode.EXTERNAL,
             operating_point=SpeechmaticsSTTService.OperatingPoint.MELIA_1,
+            # Every VoiceAgentConfigPreset in speechmatics-voice — EXTERNAL
+            # included — turns diarization on, so it is on unless we say
+            # otherwise. We don't score speaker labels, and the melia-1
+            # transcriber doesn't serve diarization yet, so ask for it off.
+            enable_diarization=False,
+            # The EXTERNAL preset also pins max_delay=2.0. Pipecat forwards
+            # advanced params only when they aren't None, so passing
+            # `max_delay=None` above would leave the preset's value in place;
+            # extra_params has no such filter and is the only way to clear it.
+            # A None max_delay is then dropped from StartRecognition, letting
+            # the engine pick its own delay.
+            extra_params={"max_delay": None},
         ),
     )
 

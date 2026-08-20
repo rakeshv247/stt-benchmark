@@ -493,13 +493,18 @@ def create_speechmatics_melia_1() -> FrameProcessor:
             # otherwise. We don't score speaker labels, and the melia-1
             # transcriber doesn't serve diarization yet, so ask for it off.
             enable_diarization=False,
-            # The EXTERNAL preset also pins max_delay=2.0. Pipecat forwards
-            # advanced params only when they aren't None, so passing
-            # `max_delay=None` above would leave the preset's value in place;
-            # extra_params has no such filter and is the only way to clear it.
-            # A None max_delay is then dropped from StartRecognition, letting
-            # the engine pick its own delay.
-            extra_params={"max_delay": None},
+            # Drop the delay knobs so the engine applies its own: the EXTERNAL
+            # preset pins max_delay=2.0 and VoiceAgentConfig defaults
+            # max_delay_mode to FLEXIBLE. Neither can be cleared via Settings —
+            # pipecat forwards advanced params only when they aren't None, so
+            # `max_delay=None` is a no-op, and max_delay_mode is read as
+            # `.value` so nulling it directly raises AttributeError. Setting
+            # them on advanced_engine_control instead patches the outgoing
+            # TranscriptionConfig, where both are Optional, and None fields are
+            # dropped from StartRecognition.
+            extra_params={
+                "advanced_engine_control": {"max_delay": None, "max_delay_mode": None},
+            },
         ),
     )
 

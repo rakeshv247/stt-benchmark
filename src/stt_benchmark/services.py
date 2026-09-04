@@ -481,13 +481,18 @@ def create_speechmatics() -> FrameProcessor:
 def create_speechmatics_melia_1() -> FrameProcessor:
     from pipecat.services.speechmatics.stt import SpeechmaticsSTTService, TurnDetectionMode
 
+    from stt_benchmark.pipeline.feou_trace import FeouTracingSpeechmaticsSTTService
     from stt_benchmark.vas import apply_proxy_headers
 
     # No-op unless VAS_TRANSCRIBER_URL is set, i.e. unless SPEECHMATICS_RT_URL
     # points at a local Voice Agent Service rather than the cloud endpoint.
     apply_proxy_headers()
 
-    return SpeechmaticsSTTService(
+    # Traced rather than plain: this service's TTFS depends on a FEOU handshake
+    # whose failure mode is a silent 1.0s wait inside the SDK, indistinguishable
+    # from slow transcription in the TTFS figure alone. Adds DEBUG lines only.
+    # See pipeline/feou_trace.py.
+    return FeouTracingSpeechmaticsSTTService(
         api_key=_get_env("SPEECHMATICS_API_KEY"),
         base_url=os.getenv("SPEECHMATICS_RT_URL", "wss://us.rt.speechmatics.com/v2"),
         settings=SpeechmaticsSTTService.Settings(
